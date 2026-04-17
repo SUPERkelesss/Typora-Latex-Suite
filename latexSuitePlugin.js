@@ -195,8 +195,8 @@ const RAW_SNIPPETS = [
     {trigger: "ooo",  replacement: "\\infty", options: "mA"},
     {trigger: "sum",  replacement: "\\sum", options: "mA", priority: -1},
     {trigger: "prod", replacement: "\\prod", options: "mA", priority: -1},
-    {trigger: "ssum",  replacement: "\\sum_{${0:i}=${1:1}}^{${2:N}} $3", options: "mA", priority: 1},
-    {trigger: "pprod", replacement: "\\prod_{${0:i}=${1:1}}^{${2:N}} $3", options: "mA", priority: 1},
+    {trigger: "ssum",  replacement: "\\sum_{${0:i} = ${1:1}}^{${2:N}} $3", options: "mA", priority: 1},
+    {trigger: "pprod", replacement: "\\prod_{${0:i} = ${1:1}}^{${2:N}} $3", options: "mA", priority: 1},
     {trigger: "lim",  replacement: "\\lim_{ ${0:n} \\to ${1:\\infty} } $2", options: "mA"},
     {trigger: "+-",   replacement: "\\pm ", options: "mA"},
     {trigger: "-+",   replacement: "\\mp ", options: "mA"},
@@ -289,8 +289,6 @@ const RAW_SNIPPETS = [
     {trigger: /(arccsc|arcsec|arccot)/, replacement: "\\operatorname{[[0]]}$0", options: "mA", priority: 1},
 
     {trigger: expandVars("\\\\(${GREEK}|${SYMBOL}|${MORE_SYMBOLS})([A-Za-z])"), replacement: "\\[[0]] [[1]]", options: "rmA"},
-    {trigger: /([+=-])([A-Za-z1-9])/, replacement: "[[0]] [[1]]", options: "rmA"},
-
     // physics
     {trigger: "kbt",   replacement: "k_{B}T", options: "mA"},
     {trigger: "hbar",   replacement: "\\hbar ", options: "mA", priority: 10},
