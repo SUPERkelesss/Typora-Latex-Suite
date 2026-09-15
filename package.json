@@ -1,0 +1,8 @@
+{
+  "name": "typora-latex-suite",
+  "private": true,
+  "scripts": {
+    "test": "node tests/run.js"
+  }
+}
+

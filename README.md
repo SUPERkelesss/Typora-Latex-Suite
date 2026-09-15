@@ -16,4 +16,16 @@
    order = 1
    ```
 
-3. 将 `latexSuitePlugin.js` 文件复制到 `./plugin/custom/plugins` 目录下。
+3. 将 `latexSuitePlugin.js` 文件和 `latex-suite` 目录复制到 `./plugin/custom/plugins` 目录下。
+
+## 开发
+
+插件入口保持为 `latexSuitePlugin.js`，核心实现位于 `latex-suite`：
+
+- `controller.js`：Typora 事件和片段展开流程；
+- `editor-adapter.js`：Typora/DOM 编辑接口适配；
+- `matcher.js`：可独立测试的匹配与占位符解析；
+- `session.js`：文档级临时状态；
+- `snippets.js`：片段定义。
+
+运行 `npm test` 可以执行不依赖 Typora 的回归测试。当前实现以 typora_plugin 1.17.x 的接口为兼容基线。
