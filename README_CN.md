@@ -19,6 +19,10 @@
 
 3. 将 `latexSuitePlugin.js` 文件和 `latex-suite` 目录复制到 `./plugin/custom/plugins` 目录下。
 
+## 快速上手
+
+查看目录下 [cheatsheet](/cheatsheet.md) 文件获取插件支持的 snippets 列表。您也可以通过修改 `snippets.js` 文件添加自定义配置。
+
 ## 切换片段配置
 
 默认使用已经加载 `physics` 宏包的片段配置。切换时编辑 Typora 安装目录中的

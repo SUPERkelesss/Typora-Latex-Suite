@@ -21,6 +21,10 @@
 
 3. Copy `latexSuitePlugin.js` and the `latex-suite` directory to `./plugin/custom/plugins`.
 
+## Fast Setup
+
+Read [cheatsheet](/cheatsheet.md) to obtain available snippets. You can also add custom snippets in `snippets.js`.
+
 ## Switching Snippet Profiles
 
 By default, the plugin uses snippets intended for documents that load the `physics` package. To switch profiles, edit
