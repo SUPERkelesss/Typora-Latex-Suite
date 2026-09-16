@@ -1,12 +1,14 @@
-# Typora Latex-Suite 插件
+# Typora Latex Suite Plugin
 
-> 本插件使用 AI Agent 工具 辅助编写。
+> This plugin was developed with the assistance of AI agent tools.
 
-## 安装说明
+[简体中文](./README_CN.md)
 
-1. 先下载 [obgnail/typora_plugin: Typora plugin. Feature enhancement tool | Typora 插件，功能增强工具](https://github.com/obgnail/typora_plugin) 插件并按要求配置；
+## Installation
 
-2. 在 Typora 的安装目录下 `./plugin/global/settings/custom_plugin.user.toml` 位置插入代码：
+1. Download [obgnail/typora_plugin: Typora plugin. Feature enhancement tool](https://github.com/obgnail/typora_plugin) and configure it as instructed.
+
+2. Add the following configuration to `./plugin/global/settings/custom_plugin.user.toml` under your Typora installation directory:
 
    ```toml
    [latexSuitePlugin]
@@ -14,18 +16,42 @@
    enable = true
    hide = false
    order = 1
+   use_physics_package = true
    ```
 
-3. 将 `latexSuitePlugin.js` 文件和 `latex-suite` 目录复制到 `./plugin/custom/plugins` 目录下。
+3. Copy `latexSuitePlugin.js` and the `latex-suite` directory to `./plugin/custom/plugins`.
 
-## 开发
+## Switching Snippet Profiles
 
-插件入口保持为 `latexSuitePlugin.js`，核心实现位于 `latex-suite`：
+By default, the plugin uses snippets intended for documents that load the `physics` package. To switch profiles, edit
+`./plugin/global/settings/custom_plugin.user.toml` under your Typora installation directory:
 
-- `controller.js`：Typora 事件和片段展开流程；
-- `editor-adapter.js`：Typora/DOM 编辑接口适配；
-- `matcher.js`：可独立测试的匹配与占位符解析；
-- `session.js`：文档级临时状态；
-- `snippets.js`：片段定义。
+```toml
+[latexSuitePlugin]
+use_physics_package = true # false
+```
 
-运行 `npm test` 可以执行不依赖 Typora 的回归测试。当前实现以 typora_plugin 1.17.x 的接口为兼容基线。
+Available values:
+
+- `true`: `snippets.js` emits commands provided by the `physics` package. This is the default.
+- `false`: the same `snippets.js` file emits standard LaTeX/amsmath commands.
+
+Run `npm test` to execute regression tests that do not depend on Typora. The current implementation targets the typora_plugin 1.17.x API as its compatibility baseline.
+
+## Development
+
+Following the [typora_plugin](https://github.com/obgnail/typora_plugin) convention, the plugin entry point is `latexSuitePlugin.js`, while the core implementation resides in `latex-suite`:
+
+- `controller.js`: Typora events and the snippet expansion flow.
+- `editor-adapter.js`: adapters for the Typora and DOM editing APIs.
+- `matcher.js`: independently testable snippet matching and placeholder parsing.
+- `session.js`: temporary document-level state.
+- `snippets.js`: unified snippet definitions that can be customized as needed.
+
+## Credits and Acknowledgements
+
+**Typora Latex Suite** uses the Typora custom plugin framework provided by
+[typora_plugin](https://github.com/obgnail/typora_plugin).
+
+The snippet design, syntax, and some default rules were adapted from
+[Obsidian Latex Suite](https://github.com/artisticat1/obsidian-latex-suite).
