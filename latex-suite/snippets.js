@@ -157,7 +157,7 @@ function createSnippets({ toggleInlineMath, toggleDisplayMath, usePhysicsPackage
         {trigger: /(?<![a-zA-Z])hat/, replacement: "\\hat{ $0 }$1", options: "rmA", priority: 20},
         {trigger: "bar",   replacement: "\\bar{$0}$1", options: "mA", priority: -1},
         {trigger: "dot",   replacement: "\\dot{$0}$1", options: "mA", priority: -2},
-        {trigger: "ddot",  replacement: "\\ddot{$0}$1", options: "mA", priority: -1},
+        {trigger: "ddot",  replacement: "\\ddot{$0}$1", options: "mA", priority: 10},
         {trigger: "tilde", replacement: "\\tilde{$0}$1", options: "mA"},
         {trigger: "und",   replacement: "\\underline{$0}$1", options: "mA"},
         {trigger: "over",   replacement: "\\overline{$0}$1", options: "mA"},
@@ -182,7 +182,7 @@ function createSnippets({ toggleInlineMath, toggleDisplayMath, usePhysicsPackage
         {trigger: expandVars("\\\\(${GREEK})[ \\t]*pmod"),  replacement: "\\pmod{\\[[0]]}", options: "rmA", priority: 30},
         {trigger: expandVars("\\\\(${GREEK})[ \\t]*bra"), replacement: profileReplacement("\\bra{\\[[0]]}", "\\langle \\[[0]] \\rvert"), options: "rmA", priority: 30},
         {trigger: expandVars("\\\\(${GREEK})[ \\t]*ket"), replacement: profileReplacement("\\ket{\\[[0]]}", "\\lvert \\[[0]] \\rangle"), options: "rmA", priority: 30},
-        {trigger: expandVars("(?<![\\\\a-zA-Z])(${GREEK})"), replacement: "\\[[0]] ", options: "rmA", priority: 10},
+        {trigger: expandVars("(?<![\\\\a-zA-Z])(${GREEK})"), replacement: "\\[[0]]", options: "rmA", priority: 10},
         
         // auto subscript
         {trigger: expandVars("(\\\\(?:${GREEK})|[A-Za-z])(\\d)"),               replacement: "[[0]]_{[[1]]}", options: "rmA", priority: -1},
@@ -193,7 +193,7 @@ function createSnippets({ toggleInlineMath, toggleDisplayMath, usePhysicsPackage
         {trigger: expandVars("\\\\(${ACCENT})\\{\\\\(${ACCENT})\\{(\\\\(?:${GREEK})|[A-Za-z])\\}\\}_\\{(\\d+)\\}(\\d)"), replacement: "\\[[0]]{\\[[1]]{[[2]]}}_{[[3]][[4]]}", options: "rmA", priority: -1},
         
         {trigger: "xnn", replacement: "x_{n}", options: "mA"},
-        {trigger: "\\xi i", replacement: "x_{i}", options: "mA", priority: 1},
+        {trigger: "\\xi i", replacement: "x_{i}", options: "mA", priority: 10},
         {trigger: "xjj", replacement: "x_{j}", options: "mA"},
         {trigger: "xp1", replacement: "x_{n+1}", options: "mA"},
         {trigger: "xm1", replacement: "x_{n-1}", options: "mA"},
@@ -202,7 +202,7 @@ function createSnippets({ toggleInlineMath, toggleDisplayMath, usePhysicsPackage
         {trigger: "yjj", replacement: "y_{j}", options: "mA"},
         
         //symbols
-        {trigger: "cdot",  replacement: "\\cdot ", options: "mA"},
+        {trigger: "cdot",  replacement: "\\cdot ", options: "mA", priority: 10},
         {trigger: "ooo",  replacement: "\\infty", options: "mA"},
         {trigger: "sum",  replacement: "\\sum", options: "mA", priority: -1},
         {trigger: "prod", replacement: "\\prod", options: "mA", priority: -1},
