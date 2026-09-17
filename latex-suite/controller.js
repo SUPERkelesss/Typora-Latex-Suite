@@ -3,10 +3,21 @@
 const { compileSnippets, matchSnippet, parseReplacement, renderSnippetReplacement } = require("./matcher")
 const { PluginSession } = require("./session")
 const { TyporaEditorAdapter } = require("./editor-adapter")
-const { createSnippets } = require("./snippets")
-
+const {
+    createInlineMathLocator,
+    getEditingRoot,
+    getInlineMathElement,
+    getInlineMathSource,
+    resolveInlineMathElement,
+    resolveLiveInlineMathSource,
+} = require("./dom-context")
+const { createSnippets, resolveUsePhysicsPackage } = require("./snippets")
 
 let session = new PluginSession()
+let compiledSnippets = []
+const INLINE_END_SENTINEL = "\u200B"
+const INLINE_PLACEHOLDER_FILLER = "\u00A0"
+const INLINE_TABSTOP_RESELECT_DELAY_MS = 150
 
 function resetSession(editor = null) {
     session.dispose()
@@ -40,31 +51,31 @@ function scheduleModeToggle(action) {
     }, 30)
 }
 
-const RAW_SNIPPETS = createSnippets({
-    toggleInlineMath: () => scheduleModeToggle(() => File.editor.stylize.toggleStyle("inline_math")),
-    toggleDisplayMath: () => scheduleModeToggle(() => File.editor.stylize.toggleMathBlock()),
-})
-
-// ── Preprocessing: Compile string triggers into RegEx / 预处理：将字符串 trigger 编译成 RegExp ─────────
-const SNIPPETS = compileSnippets(RAW_SNIPPETS)
-
 // ── Typora Environment Detection / Typora 环境检测 ───────────────────────────────
 function isInMath() {
     const activeEl = document.activeElement
-    const node = window.getSelection()?.anchorNode?.parentElement || activeEl
-    let el = node
-    while (el) {
-        const cls = el.classList
-        if (cls && (
-            cls.contains("md-math-container") ||
-            cls.contains("md-inline-math") ||
-            cls.contains("md-math-block") ||
-            cls.contains("md-blockmath") ||
-            cls.contains("mathjax-block") ||
-            el.tagName === "MJXCONTAINER" ||
-            el.getAttribute?.("data-type") === "math"
-        )) return true
-        el = el.parentElement
+    const selectionNode = window.getSelection()?.anchorNode
+
+    // At the start of an inline formula Typora can focus the math input while
+    // its DOM selection still points to the paragraph outside.  Focus is the
+    // authoritative editing surface; the selection is only a fallback.
+    for (const node of [activeEl, selectionNode]) {
+        let el = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement
+        while (el) {
+            const cls = el.classList
+            if (
+                cls &&
+                (cls.contains("md-math-container") ||
+                    cls.contains("md-inline-math") ||
+                    cls.contains("md-math-block") ||
+                    cls.contains("md-blockmath") ||
+                    cls.contains("mathjax-block") ||
+                    el.tagName === "MJXCONTAINER" ||
+                    el.getAttribute?.("data-type") === "math")
+            )
+                return true
+            el = el.parentElement
+        }
     }
     return false
 }
@@ -82,7 +93,7 @@ function isNewLine() {
     if (!sel || sel.rangeCount === 0) return false
     const caret = sel.getRangeAt(0).cloneRange()
     caret.collapse(true)
-    const root = getCurrentBlock(caret.endContainer)
+    const root = getEditingRoot(caret.endContainer, getCurrentBlock)
     const pre = document.createRange()
     pre.selectNodeContents(root)
     pre.setEnd(caret.endContainer, caret.endOffset)
@@ -94,8 +105,10 @@ function isNewLine() {
 function getCurrentBlock(node) {
     let el = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement
     while (el && el.id !== "write" && el !== document.body) {
-        if (el.hasAttribute?.("md-block") ||
-            /^(P|H[1-6]|LI|BLOCKQUOTE|DIV|TR|TD|TABLE|TBODY|THEAD)$/.test(el.tagName)) {
+        if (
+            el.hasAttribute?.("md-block") ||
+            /^(P|H[1-6]|LI|BLOCKQUOTE|DIV|TR|TD|TABLE|TBODY|THEAD)$/.test(el.tagName)
+        ) {
             return el
         }
         el = el.parentElement
@@ -145,45 +158,43 @@ function isFocusedCodeMirror(cm) {
 function getCodeMirrorState(cm) {
     if (!cm || typeof cm.getCursor !== "function" || typeof cm.getRange !== "function") return null
     const cursor = cm.getCursor()
-    const textBefore = cm.getRange({line: 0, ch: 0}, cursor)
-    const textAfter = cm.getRange(cursor, {line: cm.lineCount(), ch: 0})
-    return { type: 'cm', cm, cursor, textBefore, textAfter }
+    const textBefore = cm.getRange({ line: 0, ch: 0 }, cursor)
+    const textAfter = cm.getRange(cursor, { line: cm.lineCount(), ch: 0 })
+    return { type: "cm", cm, cursor, textBefore, textAfter }
 }
 
 function getFocusedCodeMirror() {
     const active = document.activeElement
-    const activeCm = active?.closest?.('.CodeMirror')?.CodeMirror
+    const activeCm = active?.closest?.(".CodeMirror")?.CodeMirror
 
     const selectionNode = window.getSelection()?.anchorNode
     const contextNode = selectionNode || active
-    const contextEl = contextNode?.nodeType === Node.ELEMENT_NODE
-        ? contextNode
-        : contextNode?.parentElement
+    const contextEl = contextNode?.nodeType === Node.ELEMENT_NODE ? contextNode : contextNode?.parentElement
     let mathContainer = contextEl
-    while (mathContainer && !mathContainer.classList?.contains("md-inline-math") &&
+    while (
+        mathContainer &&
+        !mathContainer.classList?.contains("md-inline-math") &&
         !mathContainer.classList?.contains("md-math-container") &&
         !mathContainer.classList?.contains("md-math-block") &&
-        !mathContainer.classList?.contains("md-blockmath")) {
+        !mathContainer.classList?.contains("md-blockmath")
+    ) {
         mathContainer = mathContainer.parentElement
     }
 
     if (isFocusedCodeMirror(activeCm)) {
-        const wrapper = typeof activeCm.getWrapperElement === "function"
-            ? activeCm.getWrapperElement()
-            : null
+        const wrapper = typeof activeCm.getWrapperElement === "function" ? activeCm.getWrapperElement() : null
         if (!mathContainer || !wrapper || mathContainer.contains(wrapper)) return activeCm
     }
 
-    const candidates = [
-        window.File?.editor?.mathBlock?.currentCm,
-        window.File?.editor?.fences?.currentCm,
-    ]
-    return candidates.find(cm => {
-        if (!isFocusedCodeMirror(cm)) return false
-        if (!mathContainer || typeof cm.getWrapperElement !== "function") return true
-        const wrapper = cm.getWrapperElement()
-        return !wrapper || mathContainer.contains(wrapper)
-    }) || null
+    const candidates = [window.File?.editor?.mathBlock?.currentCm, window.File?.editor?.fences?.currentCm]
+    return (
+        candidates.find((cm) => {
+            if (!isFocusedCodeMirror(cm)) return false
+            if (!mathContainer || typeof cm.getWrapperElement !== "function") return true
+            const wrapper = cm.getWrapperElement()
+            return !wrapper || mathContainer.contains(wrapper)
+        }) || null
+    )
 }
 
 function getEditorState(inMathOnly = false) {
@@ -203,11 +214,11 @@ function getEditorState(inMathOnly = false) {
     if (active) {
         const pos = active.selectionStart ?? 0
         return {
-            type: 'input',
+            type: "input",
             input: active,
             textBefore: active.value.slice(0, pos),
             textAfter: active.value.slice(pos),
-            pos
+            pos,
         }
     }
 
@@ -216,12 +227,12 @@ function getEditorState(inMathOnly = false) {
     if (sel && sel.rangeCount > 0) {
         const caret = sel.getRangeAt(0).cloneRange()
         caret.collapse(true)
-        const block = getCurrentBlock(caret.endContainer)
+        const block = getEditingRoot(caret.endContainer, getCurrentBlock)
         const pre = document.createRange()
         pre.selectNodeContents(block)
         pre.setEnd(caret.endContainer, caret.endOffset)
         const textBefore = pre.toString() || ""
-        return { type: 'dom', textBefore, textAfter: "", block }
+        return { type: "dom", textBefore, textAfter: "", block }
     }
 
     return null
@@ -236,7 +247,6 @@ function getTextBeforeCursor(maxLen = 120) {
     return ""
 }
 
-
 function getRangeFromCaretBack(count) {
     const active = getActiveTextInput()
     if (active) {
@@ -250,7 +260,7 @@ function getRangeFromCaretBack(count) {
     const caret = sel.getRangeAt(0).cloneRange()
     caret.collapse(true)
 
-    const root = getCurrentBlock(caret.endContainer)
+    const root = getEditingRoot(caret.endContainer, getCurrentBlock)
     const pre = document.createRange()
     pre.selectNodeContents(root)
     pre.setEnd(caret.endContainer, caret.endOffset)
@@ -260,7 +270,6 @@ function getRangeFromCaretBack(count) {
 
     return getRangeFromAbsoluteOffsets(startIndex, caretIndex, root)
 }
-
 
 function getRangeFromAbsoluteOffsets(startIndex, endIndex, root = getEditorRoot()) {
     if (!root || startIndex < 0 || endIndex < startIndex) return null
@@ -301,32 +310,29 @@ function getRangeFromAbsoluteOffsets(startIndex, endIndex, root = getEditorRoot(
     try {
         range.setStart(start.node, start.offset)
         range.setEnd(end.node, end.offset)
-    } catch(e) { return null }
+    } catch {
+        return null
+    }
     return range
 }
 function getMathContext() {
     const state = getEditorState(true)
     if (!state) return null
-    
+
     // Convert unified state back to expected format
     return {
         textBefore: state.textBefore,
         textAfter: state.textAfter,
         cm: state.cm,
-        cursor: state.cursor
+        cursor: state.cursor,
     }
 }
 
-function getActiveInlineMathElement() {
-    const candidates = [
-        window.getSelection()?.anchorNode,
-        document.activeElement,
-    ]
+function getInlineMathElementFromFocus() {
+    const candidates = [window.getSelection()?.anchorNode, document.activeElement]
 
     for (const candidate of candidates) {
-        let el = candidate?.nodeType === Node.ELEMENT_NODE
-            ? candidate
-            : candidate?.parentElement
+        let el = candidate?.nodeType === Node.ELEMENT_NODE ? candidate : candidate?.parentElement
         while (el) {
             if (el.classList?.contains("md-inline-math")) return el
             el = el.parentElement
@@ -336,32 +342,66 @@ function getActiveInlineMathElement() {
     return null
 }
 
+function getActiveInlineMathElement() {
+    const focused = getInlineMathElementFromFocus()
+    if (focused) return focused
+
+    // During a Typora subtree rebuild the selection can temporarily remain on
+    // a detached node. Only then fall back to the stored structural locator;
+    // a connected selection outside math must remain authoritative.
+    const anchor = window.getSelection()?.anchorNode
+    if (anchor && anchor.isConnected !== false) return null
+    return resolveInlineMathElement(session.activeInlineLocator, document)
+}
+
 function leaveInlineMath() {
-    const inline = getActiveInlineMathElement()
+    const inline = resolveInlineMathElement(session.activeInlineLocator, document) || getInlineMathElementFromFocus()
     if (!inline || !inline.classList.contains("md-expand")) return false
+    const locator = createInlineMathLocator(inline) || session.activeInlineLocator
 
-    const sel = window.getSelection()
-    if (!sel) return false
-
-    const range = document.createRange()
-    const next = inline.nextSibling
-    if (next?.nodeType === Node.TEXT_NODE) {
-        range.setStart(next, 0)
-    } else {
-        range.setStartAfter(inline)
+    const source = getInlineMathSource(inline)
+    if (source?.textContent?.includes(INLINE_END_SENTINEL)) {
+        const walker = document.createTreeWalker(source, NodeFilter.SHOW_TEXT)
+        const textNodes = []
+        let node
+        while ((node = walker.nextNode())) textNodes.push(node)
+        for (const textNode of textNodes) {
+            textNode.textContent = (textNode.textContent || "").replace(/\u200B/g, "")
+        }
     }
-    range.collapse(true)
-    sel.removeAllRanges()
-    sel.addRange(range)
 
-    // Typora uses md-expand for the active inline editor. Removing it after
-    // moving the caret lets Typora render the formula while keeping the caret
-    // immediately after the formula.
+    // Collapse the inline editor first. Typora may rebuild its children while
+    // doing this, so placing the caret before removing md-expand can move the
+    // selection to the beginning of the formula.
     inline.classList.remove("md-expand")
     try {
         if (window.$) window.$(inline).trigger("inline-math-changed")
-    } catch (e) {}
-    document.dispatchEvent(new Event("selectionchange"))
+    } catch {}
+
+    const placeAfter = () => {
+        const liveInline = resolveInlineMathElement(locator, document)
+        if (!liveInline) return
+        const sel = window.getSelection()
+        if (!sel) return
+        const range = document.createRange()
+        const next = liveInline.nextSibling
+        if (next?.nodeType === Node.TEXT_NODE) {
+            range.setStart(next, 0)
+        } else {
+            range.setStartAfter(liveInline)
+        }
+        range.collapse(true)
+        if (!session.editor?.setDomSelection?.(range)) {
+            sel.removeAllRanges()
+            sel.addRange(range)
+        }
+        window.File?.editor?.refocus?.()
+        document.dispatchEvent(new Event("selectionchange"))
+    }
+
+    placeAfter()
+    setTimeout(placeAfter, INLINE_TABSTOP_RESELECT_DELAY_MS)
+    session.activeInlineLocator = null
     return true
 }
 
@@ -394,18 +434,18 @@ function hasPhysicsMatrixShortcutContext(text) {
 
     for (let i = text.length - 1; i >= 0; i--) {
         const char = text[i]
-        if (char === ')') p++
-        else if (char === '(') p--
-        else if (char === ']') b++
-        else if (char === '[') b--
-        else if (char === '}') {
-            if (i > 0 && text[i - 1] === '\\') {
+        if (char === ")") p++
+        else if (char === "(") p--
+        else if (char === "]") b++
+        else if (char === "[") b--
+        else if (char === "}") {
+            if (i > 0 && text[i - 1] === "\\") {
                 i--
             } else {
                 c++
             }
-        } else if (char === '{') {
-            if (i > 0 && text[i - 1] === '\\') {
+        } else if (char === "{") {
+            if (i > 0 && text[i - 1] === "\\") {
                 i--
             } else {
                 c--
@@ -455,7 +495,10 @@ function isLastExpansionActive() {
     }
 
     const anchor = window.getSelection()?.anchorNode
-    return Boolean(anchor && expansion.root?.contains?.(anchor))
+    if (!anchor) return false
+    const liveInline = resolveInlineMathElement(expansion.inlineLocator, document)
+    if (liveInline?.contains?.(anchor)) return true
+    return Boolean(expansion.root?.contains?.(anchor))
 }
 
 function clearTabstops() {
@@ -477,17 +520,48 @@ function endSuppressAutoExpandSoon() {
     }, 0)
 }
 
+function scheduleInlineTabstopReselect(idx) {
+    const owner = session
+    const token = ++owner.tabstopJumpToken
+
+    // Typora's inline editor runs a delayed render pass (about 100 ms in
+    // 1.14.10) that restores its own caret. Re-select the placeholder after
+    // that pass so the first typed character lands in $0.
+    setTimeout(() => {
+        if (owner.disposed || owner !== session || token !== owner.tabstopJumpToken) return
+        if (owner.tabstopIdx !== idx || idx >= owner.tabstops.length) return
+
+        const tabstop = owner.tabstops[idx]
+        if (!tabstop || tabstop.input || tabstop.isCm || !tabstop.inlineLocator) return
+        jumpToTabstop(idx)
+    }, INLINE_TABSTOP_RESELECT_DELAY_MS)
+}
+
 function getAbsoluteCaretIndex(root) {
     const sel = window.getSelection()
     if (!sel || sel.rangeCount === 0) return null
     const caret = sel.getRangeAt(0).cloneRange()
     caret.collapse(true)
-    const rangeRoot = root || getCurrentBlock(caret.endContainer)
+    const rangeRoot = root || getEditingRoot(caret.endContainer, getCurrentBlock)
     if (root && typeof root.contains === "function" && !root.contains(caret.endContainer)) return null
     const pre = document.createRange()
     pre.selectNodeContents(rangeRoot)
     pre.setEnd(caret.endContainer, caret.endOffset)
     return pre.toString().length
+}
+
+function getLiveTabstopRoot(tabstop) {
+    if (!tabstop || tabstop.input) return null
+
+    // Typora can rebuild both the <script> and its wrapper. Resolve by the
+    // containing block's cid plus the formula index, not by the stale selection.
+    const locator = tabstop.inlineLocator || session.activeInlineLocator
+    const resolved = resolveLiveInlineMathSource(locator, getInlineMathElementFromFocus(), document)
+    if (!resolved) return null
+    tabstop.inlineLocator = createInlineMathLocator(resolved.inline) || locator
+    session.activeInlineLocator = tabstop.inlineLocator
+    tabstop.root = resolved.source
+    return resolved.source
 }
 
 function lineChToOffset(text, pos) {
@@ -502,12 +576,12 @@ function lineChToOffset(text, pos) {
 // Convert relative offset within inserted text to absolute CodeMirror position
 function offsetToAbsolutePosition(offset, insertedText, basePos) {
     const slice = insertedText.slice(0, offset)
-    const lines = slice.split('\n')
+    const lines = slice.split("\n")
     const relLine = lines.length - 1
     const relCh = lines[relLine].length
     return {
         line: basePos.line + relLine,
-        ch: relLine === 0 ? basePos.ch + relCh : relCh
+        ch: relLine === 0 ? basePos.ch + relCh : relCh,
     }
 }
 
@@ -519,7 +593,7 @@ function shiftFollowingTabstops(currentIdx) {
     if (cur.input) {
         let selStart = cur.start
         let selEnd = cur.end
-        
+
         if (cur.isCm) {
             const cm = cur.input
             const text = cm.getValue()
@@ -560,7 +634,12 @@ function shiftFollowingTabstops(currentIdx) {
         return
     }
 
-    const caret = getAbsoluteCaretIndex(cur.root)
+    const liveRoot = getLiveTabstopRoot(cur)
+    if (!liveRoot) {
+        clearTabstops()
+        return
+    }
+    const caret = getAbsoluteCaretIndex(liveRoot)
     if (caret == null) return
     const sel = window.getSelection()
     if (!sel || sel.rangeCount === 0) return
@@ -620,7 +699,7 @@ function tryExpandSnippet(isAutoKey) {
     const before = getTextBeforeCursor()
     if (!before && !isAutoKey) return false
 
-    const result = matchSnippet(SNIPPETS, before, {
+    const result = matchSnippet(compiledSnippets, before, {
         inMath,
         inNewLine,
         inInlineMath: Boolean(getActiveInlineMathElement()),
@@ -630,7 +709,7 @@ function tryExpandSnippet(isAutoKey) {
 
     const { snippet, match } = result
     let actualMatched = match[0]
-        
+
     // Smartly absorb leading backslash: prevent repeating into \\ after manually typing \, while preserving placeholder functionality
     // 智能吸收前导反斜杠：防止手打 \ 后重复补全为 \\，同时也保留 snippet 的占位符功能
     if (typeof snippet.trigger === "string" && !snippet.trigger.startsWith("\\")) {
@@ -647,6 +726,102 @@ function tryExpandSnippet(isAutoKey) {
     const replacement = renderSnippetReplacement(snippet, match)
 
     return doExpand(actualMatched, replacement) !== false
+}
+
+function isCurrentTabstopSelectionActive() {
+    const current = session.tabstops[session.tabstopIdx]
+    if (!current) return false
+
+    if (current.isCm) {
+        const text = current.input.getValue()
+        const selection = current.input.listSelections?.()[0]
+        if (!selection) return false
+        const head = lineChToOffset(text, selection.head)
+        const anchor = lineChToOffset(text, selection.anchor)
+        return Math.min(head, anchor) === current.start && Math.max(head, anchor) === current.end
+    }
+
+    if (current.input) {
+        return (
+            document.activeElement === current.input &&
+            (current.input.selectionStart ?? -1) === current.start &&
+            (current.input.selectionEnd ?? -1) === current.end
+        )
+    }
+
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0) return false
+    const liveRoot = getLiveTabstopRoot(current)
+    if (!liveRoot) return false
+    const range = sel.getRangeAt(0)
+    if (!liveRoot.contains?.(range.startContainer) || !liveRoot.contains?.(range.endContainer)) return false
+
+    try {
+        const beforeStart = document.createRange()
+        beforeStart.selectNodeContents(liveRoot)
+        beforeStart.setEnd(range.startContainer, range.startOffset)
+        const beforeEnd = document.createRange()
+        beforeEnd.selectNodeContents(liveRoot)
+        beforeEnd.setEnd(range.endContainer, range.endOffset)
+        return beforeStart.toString().length === current.startIndex && beforeEnd.toString().length === current.endIndex
+    } catch {
+        return false
+    }
+}
+
+function materializeInlineTabstops(text, tabstops) {
+    const empty = tabstops
+        .filter(tabstop => tabstop.start === tabstop.end && tabstop.start < text.length)
+        .sort((left, right) => left.start - right.start || left.idx - right.idx)
+    if (empty.length === 0) return { text, tabstops }
+
+    let materialized = text
+    for (let i = empty.length - 1; i >= 0; i--) {
+        const position = empty[i].start
+        materialized = materialized.slice(0, position) + INLINE_PLACEHOLDER_FILLER + materialized.slice(position)
+    }
+
+    const adjusted = tabstops.map(tabstop => {
+        const preceding = empty.filter(candidate =>
+            candidate.start < tabstop.start ||
+            (candidate.start === tabstop.start && candidate.idx < tabstop.idx)
+        ).length
+        if (empty.includes(tabstop)) {
+            const start = tabstop.start + preceding
+            return { ...tabstop, start, end: start + 1, placeholderFiller: true }
+        }
+
+        const beforeEnd = empty.filter(candidate => candidate.start < tabstop.end).length
+        return {
+            ...tabstop,
+            start: tabstop.start + preceding,
+            end: tabstop.end + beforeEnd,
+        }
+    })
+    return { text: materialized, tabstops: adjusted }
+}
+
+function clearUntouchedInlinePlaceholder() {
+    const current = session.tabstops[session.tabstopIdx]
+    if (!current?.placeholderFiller || current.input) return false
+
+    const liveRoot = getLiveTabstopRoot(current)
+    const selection = window.getSelection()
+    if (!liveRoot || !selection || selection.rangeCount === 0) return false
+    const range = selection.getRangeAt(0)
+    if (range.toString() !== INLINE_PLACEHOLDER_FILLER) return false
+
+    session.editor.replaceDomSelection("")
+    current.endIndex--
+    current.placeholderFiller = false
+    for (let i = session.tabstopIdx + 1; i < session.tabstops.length; i++) {
+        const tabstop = session.tabstops[i]
+        if (!tabstop.input) {
+            tabstop.startIndex--
+            tabstop.endIndex--
+        }
+    }
+    return true
 }
 
 // ── Actual Replacement + Tabstop Injection / 实际替换 + tabstop 注入 ───────────────────────
@@ -685,11 +860,11 @@ function doExpand(matched, replacement) {
             finalText: finalText,
             isCm: true,
             input: cm,
-            startIndex: startOffset
+            startIndex: startOffset,
         }
 
         cm.replaceRange(finalText, startPos, curCursor)
-        
+
         const cmTextAfter = cm.getValue()
         const insertedEndIndex = lineChToOffset(cmTextAfter, cm.getCursor())
         session.lastExpansion.endIndex = insertedEndIndex
@@ -700,7 +875,7 @@ function doExpand(matched, replacement) {
         }
 
         if (orderedTabstops.length > 0) {
-            const newTs = orderedTabstops.map(ts => {
+            const newTs = orderedTabstops.map((ts) => {
                 const absStart = offsetToAbsolutePosition(ts.start, finalText, startPos)
                 const absEnd = offsetToAbsolutePosition(ts.end, finalText, startPos)
                 return {
@@ -727,16 +902,16 @@ function doExpand(matched, replacement) {
     if (active) {
         const end = active.selectionStart ?? 0
         const start = Math.max(0, end - matched.length)
-        
+
         session.lastExpansion = {
             time: Date.now(),
             matched: matched,
             finalText: finalText,
             isCm: false,
             input: active,
-            startIndex: start
+            startIndex: start,
         }
-        
+
         active.setRangeText(finalText, start, end, "end")
         active.dispatchEvent(new Event("input", { bubbles: true }))
 
@@ -746,7 +921,7 @@ function doExpand(matched, replacement) {
         }
 
         if (orderedTabstops.length > 0) {
-            const newTs = orderedTabstops.map(ts => ({
+            const newTs = orderedTabstops.map((ts) => ({
                 input: active,
                 start: start + ts.start,
                 end: start + ts.end,
@@ -778,12 +953,16 @@ function doExpand(matched, replacement) {
     let expansionRoot = null
     if (preSel && preSel.rangeCount > 0) {
         const caret = preSel.getRangeAt(0).cloneRange()
-        expansionRoot = getCurrentBlock(caret.endContainer)
+        expansionRoot = getEditingRoot(caret.endContainer, getCurrentBlock)
         const pre = document.createRange()
         pre.selectNodeContents(expansionRoot)
         pre.setEnd(caret.startContainer, caret.startOffset)
         absoluteStartIndex = pre.toString().length
     }
+
+    const expansionInline = getInlineMathElement(preSel?.getRangeAt(0)?.endContainer)
+    const inlineLocator = createInlineMathLocator(expansionInline)
+    if (inlineLocator) session.activeInlineLocator = inlineLocator
 
     session.lastExpansion = {
         time: Date.now(),
@@ -791,17 +970,26 @@ function doExpand(matched, replacement) {
         finalText: finalText,
         isCm: false,
         startIndex: absoluteStartIndex,
-        root: expansionRoot
+        root: expansionRoot,
+        inlineLocator,
     }
-    
-    session.editor.replaceDomSelection(finalText)
-    try {
-        const afterSel = window.getSelection();
-        if (afterSel && afterSel.rangeCount > 0) {
-            afterSel.collapseToEnd();
-        }
-    } catch(e) {}
 
+    let insertedText = finalText
+    let inlineTabstops = orderedTabstops
+    const inlineSource = getInlineMathSource(preSel?.getRangeAt(0)?.endContainer)
+    if (inlineSource && inlineSource === expansionRoot && orderedTabstops.length > 0) {
+        const materialized = materializeInlineTabstops(finalText, orderedTabstops)
+        insertedText = materialized.text
+        inlineTabstops = materialized.tabstops
+    }
+
+    session.editor.replaceDomSelection(insertedText)
+    try {
+        const afterSel = window.getSelection()
+        if (afterSel && afterSel.rangeCount > 0) {
+            afterSel.collapseToEnd()
+        }
+    } catch {}
 
     if (session.tabstops.length > 0 && session.tabstopIdx < session.tabstops.length) {
         session.tabstopDirty = true
@@ -815,91 +1003,109 @@ function doExpand(matched, replacement) {
         if (!sel || sel.rangeCount === 0) return false
         const caret = sel.getRangeAt(0).cloneRange()
         const pre = document.createRange()
-        pre.selectNodeContents(getCurrentBlock(caret.endContainer))
+        const root = getEditingRoot(caret.endContainer, getCurrentBlock)
+        const inline = getInlineMathElement(caret.endContainer)
+        const liveInlineLocator = createInlineMathLocator(inline) || inlineLocator
+        if (liveInlineLocator) session.activeInlineLocator = liveInlineLocator
+        pre.selectNodeContents(root)
         pre.setEnd(caret.endContainer, caret.endOffset)
         const endIndex = pre.toString().length
-        const startIndex = Math.max(0, endIndex - finalText.length)
+        const startIndex = Math.max(0, endIndex - insertedText.length)
 
-            const root = getCurrentBlock(caret.endContainer);
-            const newTs = orderedTabstops.map(ts => ({
-                startIndex: startIndex + ts.start,
-                endIndex: startIndex + ts.end,
-                root: root
-            }))
-            if (session.tabstops.length > 0 && session.tabstopIdx < session.tabstops.length) {
-                session.tabstops.splice(session.tabstopIdx + 1, 0, ...newTs)
-                session.tabstopIdx++
-                jumpToTabstop(session.tabstopIdx)
-            } else {
-                session.tabstops = newTs
-                session.tabstopIdx = 0
-                jumpToTabstop(0)
-            }
+        const newTs = inlineTabstops.map((ts) => ({
+            startIndex: startIndex + ts.start,
+            endIndex: startIndex + ts.end,
+            root: root,
+            inlineLocator: liveInlineLocator,
+            placeholderFiller: ts.placeholderFiller,
+        }))
+        if (session.tabstops.length > 0 && session.tabstopIdx < session.tabstops.length) {
+            session.tabstops.splice(session.tabstopIdx + 1, 0, ...newTs)
+            session.tabstopIdx++
+            jumpToTabstop(session.tabstopIdx)
+            scheduleInlineTabstopReselect(session.tabstopIdx)
+        } else {
+            session.tabstops = newTs
+            session.tabstopIdx = 0
+            jumpToTabstop(0)
+            scheduleInlineTabstopReselect(0)
         }
-        endSuppressAutoExpandSoon()
-        return true
+    }
+    endSuppressAutoExpandSoon()
+    return true
+}
+
+function offsetToLineCh(text, offset) {
+    const slice = text.slice(0, offset)
+    const lines = slice.split("\n")
+    return { line: lines.length - 1, ch: lines[lines.length - 1].replace(/\r/g, "").length }
+}
+
+function jumpToTabstop(idx) {
+    if (idx >= session.tabstops.length) {
+        clearTabstops()
+        return
+    }
+    const ts = session.tabstops[idx]
+    session.tabstopDirty = false
+
+    if (ts.isCm) {
+        try {
+            const cmText = ts.input.getValue()
+            const startPos = offsetToLineCh(cmText, ts.start)
+            const endPos = offsetToLineCh(cmText, ts.end)
+
+            ts.input.focus()
+            ts.input.setSelection(startPos, endPos)
+
+            if (session.tabstops.length > 0) session.tabstopDirty = true
+            return
+        } catch {
+            clearTabstops()
+            return
+        }
     }
 
-    function offsetToLineCh(text, offset) {
-        const slice = text.slice(0, offset)
-        const lines = slice.split("\n")
-        return { line: lines.length - 1, ch: lines[lines.length - 1].replace(/\r/g, "").length }
+    if (ts.input) {
+        try {
+            ts.input.setSelectionRange(ts.start, ts.end)
+            ts.input.focus()
+
+            if (session.tabstops.length > 0) session.tabstopDirty = true
+            return
+        } catch {
+            clearTabstops()
+            return
+        }
     }
 
-  function jumpToTabstop(idx) {
-      if (idx >= session.tabstops.length) { clearTabstops(); return }
-      const ts = session.tabstops[idx]
-      session.tabstopDirty = false
-
-      if (ts.isCm) {
-          try {
-              const cmText = ts.input.getValue()
-              const startPos = offsetToLineCh(cmText, ts.start)
-              const endPos = offsetToLineCh(cmText, ts.end)
-
-              ts.input.focus()
-              ts.input.setSelection(startPos, endPos)
-
-              if (session.tabstops.length > 0) session.tabstopDirty = true
-              return
-            } catch (e) {
-              clearTabstops()
-              return
-          }
-      }
-
-      if (ts.input) {
-          try {
-              ts.input.setSelectionRange(ts.start, ts.end)
-              ts.input.focus()
-
-              if (session.tabstops.length > 0) session.tabstopDirty = true
-              return
-            } catch (e) {
-              clearTabstops()
-              return
-          }
-      }
-
-      try {
-          const range = getRangeFromAbsoluteOffsets(ts.startIndex, ts.endIndex, ts.root)
-          if (!range) {
-              clearTabstops()
-              return
-          }
-          const sel = window.getSelection()
-          sel.removeAllRanges()
-          sel.addRange(range)
-          if (session.tabstops.length > 0) session.tabstopDirty = true
-          } catch(e) { clearTabstops() }
-  }
+    try {
+        const liveRoot = getLiveTabstopRoot(ts)
+        if (!liveRoot) {
+            clearTabstops()
+            return
+        }
+        const range = getRangeFromAbsoluteOffsets(ts.startIndex, ts.endIndex, liveRoot)
+        if (!range) {
+            clearTabstops()
+            return
+        }
+        if (!session.editor?.setDomSelection?.(range)) {
+            const sel = window.getSelection()
+            sel.removeAllRanges()
+            sel.addRange(range)
+        }
+        if (session.tabstops.length > 0) session.tabstopDirty = true
+    } catch {
+        clearTabstops()
+    }
+}
 
 // ── Plugin Main Body / 插件主体 ──────────────────────────────────────
 const LISTENER_STORE_KEY = "__latexSuitePluginListeners__"
 const NO_PAIRING_BASELINE_KEY = "__latexSuitePluginNoPairingBaseline__"
 
-class latexSuitePlugin extends BaseCustomPlugin {
-
+class LatexSuitePlugin extends BaseCustomPlugin {
     selector = () => "#write"
 
     process = () => {
@@ -918,6 +1124,14 @@ class latexSuitePlugin extends BaseCustomPlugin {
         }
         this.session = resetSession(new TyporaEditorAdapter(this.utils))
         const owner = this.session
+        const usePhysicsPackage = resolveUsePhysicsPackage(this.config)
+        compiledSnippets = compileSnippets(
+            createSnippets({
+                usePhysicsPackage,
+                toggleInlineMath: () => scheduleModeToggle(() => File.editor.stylize.toggleStyle("inline_math")),
+                toggleDisplayMath: () => scheduleModeToggle(() => File.editor.stylize.toggleMathBlock()),
+            })
+        )
 
         if (window.File && File.option && typeof window[NO_PAIRING_BASELINE_KEY] !== "boolean") {
             window[NO_PAIRING_BASELINE_KEY] = Boolean(File.option.noPairingMatch)
@@ -935,7 +1149,7 @@ class latexSuitePlugin extends BaseCustomPlugin {
                     window[NO_PAIRING_BASELINE_KEY] = Boolean(File.option.noPairingMatch)
                 }
                 const initialNoPairingMatch = window[NO_PAIRING_BASELINE_KEY]
-                
+
                 const inMath = isInMath()
                 const focusedCm = getFocusedCodeMirror()
                 if (inMath && focusedCm) lastMathCm = focusedCm
@@ -944,15 +1158,13 @@ class latexSuitePlugin extends BaseCustomPlugin {
                 const cm = inMath ? focusedCm : lastMathCm
                 const targetAutoClose = inMath ? false : !targetNoPairingMatch
                 const canUseCmOption = Boolean(
-                    cm &&
-                    typeof cm.getOption === "function" &&
-                    typeof cm.setOption === "function"
+                    cm && typeof cm.getOption === "function" && typeof cm.setOption === "function"
                 )
                 let cmAlreadySynced = true
                 if (canUseCmOption) {
                     try {
                         cmAlreadySynced = cm.getOption("autoCloseBrackets") === targetAutoClose
-                    } catch (e) {
+                    } catch {
                         lastMathCm = null
                     }
                 }
@@ -972,7 +1184,7 @@ class latexSuitePlugin extends BaseCustomPlugin {
                 if (canUseCmOption && !cmAlreadySynced) {
                     try {
                         cm.setOption("autoCloseBrackets", targetAutoClose)
-                    } catch (e) {
+                    } catch {
                         lastMathCm = null
                     }
                 }
@@ -992,7 +1204,7 @@ class latexSuitePlugin extends BaseCustomPlugin {
                 if (lastMathCm && typeof lastMathCm.setOption === "function") {
                     try {
                         lastMathCm.setOption("autoCloseBrackets", !baseline)
-                    } catch (e) {}
+                    } catch {}
                 }
             }
         }
@@ -1045,11 +1257,11 @@ class latexSuitePlugin extends BaseCustomPlugin {
 
                 e.preventDefault()
                 e.stopPropagation()
-                
+
                 beginSuppressAutoExpand()
                 session.undoLastExpansion()
                 endSuppressAutoExpandSoon()
-                
+
                 clearTabstops()
                 return
             }
@@ -1075,10 +1287,10 @@ class latexSuitePlugin extends BaseCustomPlugin {
                         const nextLine = cur.line + 1
                         if (nextLine < ctx.cm.lineCount()) {
                             const nextLineLen = ctx.cm.getLine(nextLine).length
-                            ctx.cm.setCursor({line: nextLine, ch: nextLineLen})
+                            ctx.cm.setCursor({ line: nextLine, ch: nextLineLen })
                         } else {
                             const curLineLen = ctx.cm.getLine(cur.line).length
-                            ctx.cm.setCursor({line: cur.line, ch: curLineLen})
+                            ctx.cm.setCursor({ line: cur.line, ch: curLineLen })
                         }
                     }
                     return
@@ -1106,7 +1318,13 @@ class latexSuitePlugin extends BaseCustomPlugin {
                 shiftFollowingTabstops(session.tabstopIdx)
             }
 
-            const expanded = tryExpandSnippet(false)
+            // When a placeholder (including a default such as `i`) is still
+            // selected, Tab means navigation. Trying a snippet first would
+            // inspect the text before the selection and can expand a boundary
+            // token such as `{`, corrupting `ssum` into `\\sum_{ }i...`.
+            const navigatingSelectedTabstop = isCurrentTabstopSelectionActive()
+            if (navigatingSelectedTabstop) clearUntouchedInlinePlaceholder()
+            const expanded = navigatingSelectedTabstop ? false : tryExpandSnippet(false)
             if (expanded) {
                 e.preventDefault()
                 e.stopPropagation()
@@ -1129,6 +1347,7 @@ class latexSuitePlugin extends BaseCustomPlugin {
                     e.stopPropagation()
                     session.tabstopIdx++
                     jumpToTabstop(session.tabstopIdx)
+                    scheduleInlineTabstopReselect(session.tabstopIdx)
                     return
                 }
 
@@ -1176,7 +1395,11 @@ class latexSuitePlugin extends BaseCustomPlugin {
             return
         }
 
-        if (["Escape", "ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(e.key)) {
+        if (
+            ["Escape", "ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(
+                e.key
+            )
+        ) {
             clearTabstops()
         }
     }
@@ -1190,13 +1413,13 @@ class latexSuitePlugin extends BaseCustomPlugin {
         // A later user edit owns the next undo step. Do not keep treating the
         // older snippet expansion as the top of the history stack.
         session.lastExpansion = null
-        
+
         // Disable auto-expansion when deleting or moving cursor, only trigger upon writing text
-        if (e && e.inputType && (
-            e.inputType.startsWith("delete") || 
-            e.inputType === "historyUndo" ||
-            e.inputType === "historyRedo"
-        )) {
+        if (
+            e &&
+            e.inputType &&
+            (e.inputType.startsWith("delete") || e.inputType === "historyUndo" || e.inputType === "historyRedo")
+        ) {
             return
         }
 
@@ -1210,4 +1433,4 @@ class latexSuitePlugin extends BaseCustomPlugin {
     }
 }
 
-module.exports = { plugin: latexSuitePlugin }
+module.exports = { plugin: LatexSuitePlugin }

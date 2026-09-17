@@ -4,17 +4,20 @@ class PluginSession {
         this.disposed = false
         this.modeToggleToken = 0
         this.autoExpandToken = 0
+        this.tabstopJumpToken = 0
         this.tabstops = []
         this.tabstopIdx = 0
         this.suppressAutoExpand = false
         this.tabstopDirty = false
         this.lastExpansion = null
+        this.activeInlineLocator = null
     }
 
     dispose() {
         this.disposed = true
         this.modeToggleToken++
         this.autoExpandToken++
+        this.tabstopJumpToken++
         this.clearTransientState()
         this.editor = null
     }
@@ -22,6 +25,7 @@ class PluginSession {
     resetForDocument() {
         this.modeToggleToken++
         this.autoExpandToken++
+        this.tabstopJumpToken++
         this.clearTransientState()
     }
 
@@ -57,6 +61,7 @@ class PluginSession {
         this.suppressAutoExpand = false
         this.tabstopDirty = false
         this.lastExpansion = null
+        this.activeInlineLocator = null
     }
 }
 

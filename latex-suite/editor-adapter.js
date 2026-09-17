@@ -44,6 +44,26 @@ class TyporaEditorAdapter {
         return this.document.execCommand("undo", false, null)
     }
 
+    setDomSelection(range) {
+        const selectionApi = this.window.File?.editor?.selection
+
+        // Typora tracks its own Rangy selection/bookmark in addition to the
+        // browser Selection. Its own code passes native DOM ranges directly
+        // to setRange, so do the same instead of wrapping the range again.
+        if (typeof selectionApi?.setRange === "function") {
+            try {
+                selectionApi.setRange(range, true)
+                return true
+            } catch {}
+        }
+
+        const selection = this.window.getSelection?.()
+        if (!selection) return false
+        selection.removeAllRanges()
+        selection.addRange(range)
+        return true
+    }
+
 }
 
 module.exports = { TyporaEditorAdapter }

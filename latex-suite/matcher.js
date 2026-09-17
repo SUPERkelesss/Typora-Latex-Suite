@@ -36,7 +36,11 @@ function compileSnippets(rawSnippets) {
 }
 
 function matchSnippet(snippets, before, context) {
+    let bestMatch = null
+
     for (const snippet of snippets) {
+        if (bestMatch && snippet.priority < bestMatch.snippet.priority) break
+
         const options = snippet.options || ""
         if (options.includes("m") && !context.inMath) continue
         if (options.includes("t") && context.inMath) continue
@@ -53,13 +57,19 @@ function matchSnippet(snippets, before, context) {
             if (previous && /\w/.test(previous)) continue
         }
 
-        return { snippet, match }
+        if (!bestMatch || match[0].length > bestMatch.match[0].length) {
+            bestMatch = { snippet, match }
+        }
     }
-    return null
+
+    return bestMatch
 }
 
 function parseReplacement(replacement) {
-    const placeholder = /\$\{(\d+):([^}]*)\}|\$(\d+)/g
+    // Support every placeholder form used by the snippet table: $0,
+    // ${0}, and ${0:default}.  Previously `${0}` was left as literal text,
+    // so the first tabstop disappeared and every following jump was wrong.
+    const placeholder = /\$\{(\d+)(?::([^}]*))?\}|\$(\d+)/g
     const positions = []
     let finalText = ""
     let last = 0
@@ -68,7 +78,7 @@ function parseReplacement(replacement) {
     while ((match = placeholder.exec(replacement)) !== null) {
         finalText += replacement.slice(last, match.index)
         const idx = Number.parseInt(match[1] ?? match[3], 10)
-        const text = match[2] || ""
+        const text = match[2] ?? ""
         const start = finalText.length
         finalText += text
         positions.push({ idx, start, end: finalText.length })
@@ -92,4 +102,4 @@ function renderSnippetReplacement(snippet, match) {
     return snippet.replacement.replace(/\[\[(\d+)\]\]/g, (_, n) => match[Number.parseInt(n, 10) + 1] || "")
 }
 
-module.exports = { compileSnippets, escapeRegex, isRegExpLike, matchSnippet, parseReplacement, renderSnippetReplacement }
+module.exports = { compileSnippets, matchSnippet, parseReplacement, renderSnippetReplacement }
