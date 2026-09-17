@@ -159,7 +159,7 @@ function testSnippetProfiles() {
             snippet.replacement !== noPhysics[index].replacement
         )
         .map(snippet => snippet.id)
-    assert.equal(changedIds.length, 57, "all profile-specific replacements must remain selectable")
+    assert.equal(changedIds.length, 60, "all profile-specific replacements must remain selectable")
 
     for (const snippet of noPhysics) {
         if (typeof snippet.replacement === "string") {
