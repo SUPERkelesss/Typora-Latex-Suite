@@ -1,9 +1,34 @@
 // Cloned and modified from Obsidian Latex Suite's default snippets.
-// This factory receives side effects explicitly and has no Typora DOM access.
-function createSnippets({ toggleInlineMath, toggleDisplayMath }) {
+function snippetId(trigger) {
+    if (trigger instanceof RegExp) return `regexp:${trigger.source}/${trigger.flags}`
+    return `string:${String(trigger)}`
+}
+
+function addSnippetIds(snippets) {
+    const seen = new Set()
+    return snippets.map(snippet => {
+        const id = snippet.id || snippetId(snippet.trigger)
+        if (seen.has(id)) throw new Error(`Duplicate Latex Suite snippet id: ${id}`)
+        seen.add(id)
+        return { ...snippet, id }
+    })
+}
+
+const PHYSICS_COMMAND_PATTERN = /\\(?:Tr|rank|erf|Res|grad|curl|laplacian|va|vb|vu|bra|ket|dd|dv|pdv|qty|abs|norm|ev|ip|op|mel|comm|acomm|pmqty|bmqty|mdet|imat|dmat|xmat)(?![A-Za-z])/
+
+function resolveUsePhysicsPackage(config = {}) {
+    const value = config?.use_physics_package
+    if (value === undefined) return true
+    if (typeof value !== "boolean") {
+        throw new TypeError("Latex Suite use_physics_package must be true or false")
+    }
+    return value
+}
+
+function createSnippets({ toggleInlineMath, toggleDisplayMath, usePhysicsPackage = true }) {
     const GREEK   = "alpha|beta|gamma|Gamma|delta|Delta|epsilon|zeta|eta|theta|Theta|iota|kappa|lambda|Lambda|mu|nu|xi|Xi|pi|Pi|rho|sigma|Sigma|tau|upsilon|Upsilon|phi|Phi|chi|psi|Psi|omega|Omega"
     const SYMBOL  = "perp|forall|nabla|exists|partial|pm|mp|hbar|ell"
-    const ACCENT  = "hat|bar|dot|ddot|tilde|vec|underline|overline|va|vb|vu|ket|bra"
+    const ACCENT  = "hat|bar|dot|ddot|tilde|vec|underline|overline|mathbf|boldsymbol|va|vb|vu|ket|bra"
     const MORE_SYMBOLS = "infty|cdot|times|otimes|oplus|cup|cap|subset|supset|in|notin|to|mapsto|implies|iff|leftarrow|rightarrow|leftrightarrow|Rightarrow|Leftarrow|Leftrightarrow|equiv|neq|geq|leq|gg|ll|sim|simeq|propto|setminus|emptyset|complement|parallel"
     
     function expandVars(str) {
@@ -14,8 +39,12 @@ function createSnippets({ toggleInlineMath, toggleDisplayMath }) {
             .replace(/\$\{MORE_SYMBOLS\}/g, MORE_SYMBOLS)
     }
 
-    return [
-        // for efficient formula typing, this table is typing asuuming physics package is activatied.
+    function profileReplacement(physicsReplacement, standardReplacement) {
+        return usePhysicsPackage ? physicsReplacement : standardReplacement
+    }
+
+    const snippets = [
+        // Default profile: optimized for documents that load the physics package.
         // Modes
         {
             trigger: "mk", 
@@ -96,7 +125,7 @@ function createSnippets({ toggleInlineMath, toggleDisplayMath }) {
         {trigger: "//",   replacement: "\\frac{ $0 }{ $1 }$2", options: "mA"},
         {trigger: "ee",   replacement: "e^{ $0 }$1", options: "mA"},
         {trigger: "inv", replacement: "^{-1}", options: "mA"},
-        {trigger: /([^\\])(exp|log|ln)/, replacement: "[[0]]\\[[1]]", options: "rmA"},
+        {trigger: /(?<![\\])(exp|log|ln)/, replacement: "\\[[0]]", options: "rmA"},
         {trigger: "conj", replacement: "^{*}", options: "mA"},
         {trigger: "Re",   replacement: "\\Re", options: "mA"},
         {trigger: "Im",   replacement: "\\Im", options: "mA"},
@@ -109,7 +138,7 @@ function createSnippets({ toggleInlineMath, toggleDisplayMath }) {
         {trigger: expandVars("\\\\(${GREEK})\\.,"), replacement: "\\boldsymbol{\\[[0]]}", options: "rmA", priority: 9},
         {trigger: "([a-uw-zA-UW-Z])bb", replacement: "\\mathbb{[[0]]}", options: "rmA", priority: 10},
         {trigger: /([^\\])(det)/, replacement: "[[0]]\\[[1]] ", options: "rmA"},
-        {trigger: "Tr", replacement: "\\Tr", options: "mA"},
+        {trigger: "Tr", replacement: profileReplacement("\\Tr", "\\operatorname{Tr}"), options: "mA"},
         
         // operations
         {trigger: "([a-zA-Z])hat",   replacement: "\\hat{[[0]]}", options: "rmA", priority: 10},
@@ -120,15 +149,12 @@ function createSnippets({ toggleInlineMath, toggleDisplayMath }) {
         {trigger: "([a-zA-Z])und",   replacement: "\\underline{[[0]]}", options: "rm", priority: 10},
         {trigger: "([a-zA-z])over",   replacement: "\\overline{[[0]]}", options: "rm", priority: 10},
         {trigger: "([a-zA-Z])vec",   replacement: "\\vec{[[0]]}", options: "rm", priority: 10},
-        {trigger: "([a-zA-Z])vaa",   replacement: "\\va{[[0]]}", options: "rm", priority: 10},
-        {trigger: "([a-zA-Z])vbb",   replacement: "\\vb{[[0]]}", options: "rm", priority: 10},
-        {trigger: "([a-zA-Z])vuu",   replacement: "\\vu{[[0]]}", options: "rm", priority: 10},
-        {trigger: "([a-zA-Z])bra",  replacement: "\\bra{[[0]]}", options: "rm", priority: 10},
-        {trigger: "([a-zA-Z])ket",  replacement: "\\ket{[[0]]}", options: "rm", priority: 10},
-        
-        // Prefer the standalone command at a token boundary; `xhat` continues
-        // to use the operand-absorbing rule above.
-        {trigger: /(^|[^a-zA-Z])hat/, replacement: "[[0]]\\hat{ $0 }$1", options: "rmA", priority: 20},
+        {trigger: "([a-zA-Z])vaa", replacement: profileReplacement("\\va{[[0]]}", "\\vec{[[0]]}"), options: "rm", priority: 10},
+        {trigger: "([a-zA-Z])vbb", replacement: profileReplacement("\\vb{[[0]]}", "\\mathbf{[[0]]}"), options: "rm", priority: 10},
+        {trigger: "([a-zA-Z])vuu", replacement: profileReplacement("\\vu{[[0]]}", "\\hat{\\mathbf{[[0]]}}"), options: "rm", priority: 10},
+        {trigger: "([a-zA-Z])bra", replacement: profileReplacement("\\bra{[[0]]}", "\\langle [[0]] \\rvert"), options: "rm", priority: 10},
+        {trigger: "([a-zA-Z])ket", replacement: profileReplacement("\\ket{[[0]]}", "\\lvert [[0]] \\rangle"), options: "rm", priority: 10},
+        {trigger: /(?<![a-zA-Z])hat/, replacement: "\\hat{ $0 }$1", options: "rmA", priority: 20},
         {trigger: "bar",   replacement: "\\bar{$0}$1", options: "mA", priority: -1},
         {trigger: "dot",   replacement: "\\dot{$0}$1", options: "mA", priority: -2},
         {trigger: "ddot",  replacement: "\\ddot{$0}$1", options: "mA", priority: -1},
@@ -137,14 +163,11 @@ function createSnippets({ toggleInlineMath, toggleDisplayMath }) {
         {trigger: "over",   replacement: "\\overline{$0}$1", options: "mA"},
         {trigger: "vec",   replacement: "\\vec{$0}$1", options: "mA"},
         {trigger: "pmod",  replacement: "\\pmod{${0:n}}$1", options: "mA"},
-        {trigger: "vaa",  replacement: "\\va{$0}$1", options: "mA"},
-        {trigger: "vbb",  replacement: "\\vb{$0}$1", options: "mA"},
-        {trigger: "vuu",  replacement: "\\vu{$0}$1", options: "mA"},
-        {trigger: "bra",   replacement: "\\bra{$0} $1", options: "mA"},
-        {trigger: "ket",   replacement: "\\ket{$0} $1", options: "mA"},
-        // These rules must outrank standalone accents and accept both the
-        // direct `@ahat` path (`\\alphahat`) and an inserted separator
-        // (`\\alpha hat`).
+        {trigger: "vaa", replacement: profileReplacement("\\va{$0}$1", "\\vec{$0}$1"), options: "mA"},
+        {trigger: "vbb", replacement: profileReplacement("\\vb{$0}$1", "\\mathbf{$0}$1"), options: "mA"},
+        {trigger: "vuu", replacement: profileReplacement("\\vu{$0}$1", "\\hat{\\mathbf{$0}}$1"), options: "mA"},
+        {trigger: "bra", replacement: profileReplacement("\\bra{$0} $1", "\\left\\langle $0 \\right\\rvert $1"), options: "mA"},
+        {trigger: "ket", replacement: profileReplacement("\\ket{$0} $1", "\\left\\lvert $0 \\right\\rangle $1"), options: "mA"},
         {trigger: expandVars("\\\\(${GREEK})[ \\t]*hat"),   replacement: "\\hat{\\[[0]]}", options: "rmA", priority: 30},
         {trigger: expandVars("\\\\(${GREEK})[ \\t]*dot"),   replacement: "\\dot{\\[[0]]}", options: "rmA", priority: 30},
         {trigger: expandVars("\\\\(${GREEK})[ \\t]*ddot"),  replacement: "\\ddot{\\[[0]]}", options: "rmA", priority: 30},
@@ -153,25 +176,21 @@ function createSnippets({ toggleInlineMath, toggleDisplayMath }) {
         {trigger: expandVars("\\\\(${GREEK})[ \\t]*tilde"), replacement: "\\tilde{\\[[0]]}", options: "rmA", priority: 30},
         {trigger: expandVars("\\\\(${GREEK})[ \\t]*und"),   replacement: "\\underline{\\[[0]]}", options: "rmA", priority: 30},
         {trigger: expandVars("\\\\(${GREEK})[ \\t]*over"),  replacement: "\\overline{\\[[0]]}", options: "rmA", priority: 30},
-        {trigger: expandVars("\\\\(${GREEK})[ \\t]*vaa"),   replacement: "\\va{\\[[0]]}", options: "rmA", priority: 30},
-        {trigger: expandVars("\\\\(${GREEK})[ \\t]*vbb"),   replacement: "\\vb{\\[[0]]}", options: "rmA", priority: 30},
-        {trigger: expandVars("\\\\(${GREEK})[ \\t]*vuu"),   replacement: "\\vu{\\[[0]]}", options: "rmA", priority: 30},
+        {trigger: expandVars("\\\\(${GREEK})[ \\t]*vaa"), replacement: profileReplacement("\\va{\\[[0]]}", "\\vec{\\[[0]]}"), options: "rmA", priority: 30},
+        {trigger: expandVars("\\\\(${GREEK})[ \\t]*vbb"), replacement: profileReplacement("\\vb{\\[[0]]}", "\\boldsymbol{\\[[0]]}"), options: "rmA", priority: 30},
+        {trigger: expandVars("\\\\(${GREEK})[ \\t]*vuu"), replacement: profileReplacement("\\vu{\\[[0]]}", "\\hat{\\boldsymbol{\\[[0]]}}"), options: "rmA", priority: 30},
         {trigger: expandVars("\\\\(${GREEK})[ \\t]*pmod"),  replacement: "\\pmod{\\[[0]]}", options: "rmA", priority: 30},
-        {trigger: expandVars("\\\\(${GREEK})[ \\t]*bra"),   replacement: "\\bra{\\[[0]]}", options: "rmA", priority: 30},
-        {trigger: expandVars("\\\\(${GREEK})[ \\t]*ket"),   replacement: "\\ket{\\[[0]]}", options: "rmA", priority: 30},
-    
-        // Only expand a Greek name at a token boundary. Without the boundary,
-        // `beta` is also parsed as `b` + `eta`, which drops the first letter.
-        {trigger: expandVars("(^|[^\\\\a-zA-Z])(${GREEK})"), replacement: "[[0]]\\[[1]] ", options: "rmA"},
-        {trigger: expandVars("(^|$)(${GREEK})"), replacement: "\\[[1]] ", options: "rmA", priority: 10},
+        {trigger: expandVars("\\\\(${GREEK})[ \\t]*bra"), replacement: profileReplacement("\\bra{\\[[0]]}", "\\langle \\[[0]] \\rvert"), options: "rmA", priority: 30},
+        {trigger: expandVars("\\\\(${GREEK})[ \\t]*ket"), replacement: profileReplacement("\\ket{\\[[0]]}", "\\lvert \\[[0]] \\rangle"), options: "rmA", priority: 30},
+        {trigger: expandVars("(?<![\\\\a-zA-Z])(${GREEK})"), replacement: "\\[[0]] ", options: "rmA", priority: 10},
         
         // auto subscript
-        {trigger: expandVars("(\\\\${GREEK}|[A-Za-z])(\\d)"),               replacement: "[[0]]_{[[1]]}", options: "rmA", priority: -1},
-        {trigger: expandVars("(\\\\${GREEK}|[A-Za-z])_{(\\d+)}(\\d)"),      replacement: "[[0]]_{[[1]][[2]]}", options: "rmA", priority: -1},
-        {trigger: expandVars("\\\\(${ACCENT})\\{(\\\\${GREEK}|[A-Za-z])\\}(\\d)"), replacement: "\\[[0]]{[[1]]}_{[[2]]}", options: "rmA", priority: -1},
-        {trigger: expandVars("\\\\(${ACCENT})\\{(\\\\${GREEK}|[A-Za-z])\\}_\\{(\\d+)\\}(\\d)"), replacement: "\\[[0]]{[[1]]}_{[[2]][[3]]}", options: "rmA", priority: -1},
-        {trigger: expandVars("\\\\(${ACCENT})\\{\\\\(${ACCENT})\\{(\\\\${GREEK}|[A-Za-z])\\}\\}(\\d)"), replacement: "\\[[0]]{\\[[1]]{[[2]]}}_{[[3]]}", options: "rmA", priority: -1},
-        {trigger: expandVars("\\\\(${ACCENT})\\{\\\\(${ACCENT})\\{(\\\\${GREEK}|[A-Za-z])\\}\\}_\\{(\\d+)\\}(\\d)"), replacement: "\\[[0]]{\\[[1]]{[[2]]}}_{[[3]][[4]]}", options: "rmA", priority: -1},
+        {trigger: expandVars("(\\\\(?:${GREEK})|[A-Za-z])(\\d)"),               replacement: "[[0]]_{[[1]]}", options: "rmA", priority: -1},
+        {trigger: expandVars("(\\\\(?:${GREEK})|[A-Za-z])_{(\\d+)}(\\d)"),      replacement: "[[0]]_{[[1]][[2]]}", options: "rmA", priority: -1},
+        {trigger: expandVars("\\\\(${ACCENT})\\{(\\\\(?:${GREEK})|[A-Za-z])\\}(\\d)"), replacement: "\\[[0]]{[[1]]}_{[[2]]}", options: "rmA", priority: -1},
+        {trigger: expandVars("\\\\(${ACCENT})\\{(\\\\(?:${GREEK})|[A-Za-z])\\}_\\{(\\d+)\\}(\\d)"), replacement: "\\[[0]]{[[1]]}_{[[2]][[3]]}", options: "rmA", priority: -1},
+        {trigger: expandVars("\\\\(${ACCENT})\\{\\\\(${ACCENT})\\{(\\\\(?:${GREEK})|[A-Za-z])\\}\\}(\\d)"), replacement: "\\[[0]]{\\[[1]]{[[2]]}}_{[[3]]}", options: "rmA", priority: -1},
+        {trigger: expandVars("\\\\(${ACCENT})\\{\\\\(${ACCENT})\\{(\\\\(?:${GREEK})|[A-Za-z])\\}\\}_\\{(\\d+)\\}(\\d)"), replacement: "\\[[0]]{\\[[1]]{[[2]]}}_{[[3]][[4]]}", options: "rmA", priority: -1},
         
         {trigger: "xnn", replacement: "x_{n}", options: "mA"},
         {trigger: "\\xi i", replacement: "x_{i}", options: "mA", priority: 1},
@@ -196,10 +215,10 @@ function createSnippets({ toggleInlineMath, toggleDisplayMath }) {
         {trigger: "v..",  replacement: "\\vdots ", options: "mA"},
         {trigger: "d..",  replacement: "\\ddots ", options: "mA"},
         {trigger: "nabl", replacement: "\\nabla ", options: "mA"},
-        {trigger: "grad", replacement: "\\grad ", options: "mA"},
+        {trigger: "grad", replacement: profileReplacement("\\grad ", "\\nabla "), options: "mA"},
         {trigger: "div", replacement: "\\div ", options: "mA"},
-        {trigger: "curl", replacement: "\\curl ", options: "mA"},
-        {trigger: "lapl", replacement: "\\laplacian ", options: "mA"},
+        {trigger: "curl", replacement: profileReplacement("\\curl ", "\\nabla \\times "), options: "mA"},
+        {trigger: "lapl", replacement: profileReplacement("\\laplacian ", "\\nabla^{2} "), options: "mA"},
         {trigger: "xx",   replacement: "\\times ", options: "mA"},
         {trigger: "**",   replacement: "\\cdot ", options: "mA"},
         {trigger: "para", replacement: "\\parallel ", options: "mA"},
@@ -211,7 +230,7 @@ function createSnippets({ toggleInlineMath, toggleDisplayMath }) {
         {trigger: "<<",   replacement: "\\ll ", options: "mA"},
         {trigger: "simm", replacement: "\\sim ", options: "mA"},
         {trigger: "sim=", replacement: "\\simeq ", options: "mA"},
-        {trigger: "~=", replacement: "\\approx ", options: "mA"},
+        {trigger: /\\?~=/, replacement: "\\approx ", options: "rmA"},
         {trigger: "prop", replacement: "\\propto ", options: "mA"},
         {trigger: "<->",  replacement: "\\leftrightarrow ", options: "mA"},
         {trigger: "->",   replacement: "\\to ", options: "mA"},
@@ -233,9 +252,9 @@ function createSnippets({ toggleInlineMath, toggleDisplayMath }) {
         {trigger: "log",  replacement: "\\log ", options: "mA"},
         {trigger: "det",  replacement: "\\det ", options: "mA"},
         {trigger: "Pr",  replacement: "\\Pr ", options: "mA"},
-        {trigger: "rank",  replacement: "\\rank ", options: "mA"},
-        {trigger: "erf",  replacement: "\\erf ", options: "mA"},
-        {trigger: "Res",  replacement: "\\Res ", options: "mA"},
+        {trigger: "rank", replacement: profileReplacement("\\rank ", "\\operatorname{rank} "), options: "mA"},
+        {trigger: "erf", replacement: profileReplacement("\\erf ", "\\operatorname{erf} "), options: "mA"},
+        {trigger: "Res", replacement: profileReplacement("\\Res ", "\\operatorname{Res} "), options: "mA"},
         {trigger: "LL",   replacement: "\\mathcal{L}", options: "mA"},
         {trigger: "HH",   replacement: "\\mathcal{H}", options: "mA"},
         {trigger: "UU",   replacement: "\\mathcal{U}", options: "mA"},
@@ -251,29 +270,31 @@ function createSnippets({ toggleInlineMath, toggleDisplayMath }) {
         {trigger: /\(([^()/]*(?:\([^()/]*\)[^()/]*)*)\)\s*\/\s*([a-zA-Z0-9_\\^{}]+)/, replacement: "\\frac{[[0]]}{[[1]]}", options: "rm"},
         {trigger: /([a-zA-Z0-9_\\^{}]+)\s*\/\s*\(([^()/]*(?:\([^()/]*\)[^()/]*)*)\)/, replacement: "\\frac{[[0]]}{[[1]]}", options: "rm"},
         {trigger: /([a-zA-Z0-9_\\^{}]+)\s*\/\s*([a-zA-Z0-9_\\^{}]+)/, replacement: "\\frac{[[0]]}{[[1]]}", options: "rm"},
-        {trigger: "ddx", replacement: "\\dd{x}$0", options: "mA"},
-        {trigger: "ddt", replacement: "\\dd{t}$0", options: "mA"},
-        {trigger: "ddd", replacement: "\\dd{$0} $1", options: "mA"},
-        {trigger: "pdv0", replacement: "\\pdv{ ${0:x} } $2", options: "mA"},
-        {trigger: "pdv1", replacement: "\\pdv{ ${0:y} }{ ${1:x} } $2", options: "mA"},
-        {trigger: /pdv([2-9])/, replacement: "\\pdv[[[0]]]{ ${0:y} }{ ${1:x} } $2", options: "mA"},
-        {trigger: "pdv:", replacement: "\\pdv{ ${0:z} }{ ${1:x} }{ ${2:y} } $3", options: "mA"},
-        {trigger: "pdv_", replacement: "\\qty(\\pdv{ ${0:y} }{ ${1:x} })_{ ${2:t} } $3", options: "mA"},
-        {trigger: /pa([A-Za-z])([A-Za-z])/, replacement: "\\pdv{ [[0]] }{ [[1]] } ", options: "rm"},
-        {trigger: /pa([A-Za-z])([A-Za-z])([A-Za-z])/, replacement: "\\pdv{ [[0]] }{ [[1]] }{ [[2]] } ", options: "rm"},
-        {trigger: /pa([A-Za-z])([A-Za-z])_([A-Za-z])/, replacement: "\\qty(\\pdv{ [[0]] }{ [[1]] })_{ [[2]] } ", options: "rm"},
-        {trigger: /pa([1-9])([A-Za-z])([A-Za-z])/, replacement: "\\pdv[[[0]]]{ [[1]] }{ [[2]] } ", options: "rm"},
-        {trigger: "dv0",   replacement: "\\dv{ ${0:x} }$1", options: "mA"},
-        {trigger: "dv1",   replacement: "\\dv{ ${0:y} }{ ${1:x} }$2", options: "mA"},
-        {trigger: /dv([2-9])/, replacement: "\\dv[[[0]]]{ ${0:y} }{ ${1:x} } $2", options: "mA"},
+        {trigger: "ddx", replacement: profileReplacement("\\dd{x}$0", "\\,\\mathrm{d}x$0"), options: "mA"},
+        {trigger: "ddt", replacement: profileReplacement("\\dd{t}$0", "\\,\\mathrm{d}t$0"), options: "mA"},
+        {trigger: "ddd", replacement: profileReplacement("\\dd{$0}$1", "\\,\\mathrm{d}t$0"), options: "mA"},
+        {trigger: "dd1", replacement: profileReplacement("\\dd{$0}$1", "\\,\\mathrm{d}t$0"), options: "mA"},
+        {trigger: /dd([2-9])/, replacement: profileReplacement("\\dd[[0]]{$0} $1", "\\,\\mathrm{d}$0 $1"), options: "mA"},
+        {trigger: "pdv0", replacement: profileReplacement("\\pdv{ ${0:x} } $2", "\\frac{\\partial}{\\partial ${0:x}} $2"), options: "mA"},
+        {trigger: "pdv1", replacement: profileReplacement("\\pdv{ ${0:y} }{ ${1:x} } $2", "\\frac{\\partial ${0:y}}{\\partial ${1:x}} $2"), options: "mA"},
+        {trigger: "pdvv", replacement: profileReplacement("\\pdv{ ${0:y} }{ ${1:x} } $2", "\\frac{\\partial ${0:y}}{\\partial ${1:x}} $2"), options: "mA"},
+        {trigger: /pdv([2-9])/, replacement: profileReplacement("\\pdv[[[0]]]{ ${0:y} }{ ${1:x} } $2", "\\frac{\\partial^{[[0]]} ${0:y}}{\\partial ${1:x}^{[[0]]}} $2"), options: "mA"},
+        {trigger: "pdv:", replacement: profileReplacement("\\pdv{ ${0:z} }{ ${1:x} }{ ${2:y} } $3", "\\frac{\\partial^{2} ${0:z}}{\\partial ${1:x}\\,\\partial ${2:y}} $3"), options: "mA"},
+        {trigger: "pdv_", replacement: profileReplacement("\\qty(\\pdv{ ${0:y} }{ ${1:x} })_{ ${2:t} } $3", "\\left(\\frac{\\partial ${0:y}}{\\partial ${1:x}}\\right)_{${2:t}} $3"), options: "mA"},
+        {trigger: /pa([A-Za-z])([A-Za-z])/, replacement: profileReplacement("\\pdv{ [[0]] }{ [[1]] } ", "\\frac{\\partial [[0]]}{\\partial [[1]]} "), options: "rm"},
+        {trigger: /pa([A-Za-z])([A-Za-z])([A-Za-z])/, replacement: profileReplacement("\\pdv{ [[0]] }{ [[1]] }{ [[2]] } ", "\\frac{\\partial^{2} [[0]]}{\\partial [[1]]\\,\\partial [[2]]} "), options: "rm"},
+        {trigger: /pa([A-Za-z])([A-Za-z])_([A-Za-z])/, replacement: profileReplacement("\\qty(\\pdv{ [[0]] }{ [[1]] })_{ [[2]] } ", "\\left(\\frac{\\partial [[0]]}{\\partial [[1]]}\\right)_{[[2]]} "), options: "rm"},
+        {trigger: /pa([1-9])([A-Za-z])([A-Za-z])/, replacement: profileReplacement("\\pdv[[[0]]]{ [[1]] }{ [[2]] } ", "\\frac{\\partial^{[[0]]} [[1]]}{\\partial [[2]]^{[[0]]}} "), options: "rm"},
+        {trigger: "dv0", replacement: profileReplacement("\\dv{ ${0:x} }$1", "\\frac{\\mathrm{d}}{\\mathrm{d}${0:x}}$1"), options: "mA"},
+        {trigger: "dv1", replacement: profileReplacement("\\dv{ ${0:y} }{ ${1:x} }$2", "\\frac{\\mathrm{d}${0:y}}{\\mathrm{d}${1:x}}$2"), options: "mA"},
+        {trigger: /dv([2-9])/, replacement: profileReplacement("\\dv[[[0]]]{ ${0:y} }{ ${1:x} } $2", "\\frac{\\mathrm{d}^{[[0]]}${0:y}}{\\mathrm{d}${1:x}^{[[0]]}} $2"), options: "mA"},
         {trigger: /([^\\])int/, replacement: "[[0]]\\int", options: "mA", priority: -1},
-        // {trigger: "\\int", replacement: "\\int $0 \\, d${1:x} $2", options: "m"},
-        {trigger: "dint",  replacement: "\\int_{${0:0}}^{${1:1}} $2 \\dd{${3:x}} $4", options: "mA"},
+        {trigger: "dint", replacement: profileReplacement("\\int_{${0:0}}^{${1:1}} $2 \\dd{${3:x}} $4", "\\int_{${0:0}}^{${1:1}} $2 \\,\\mathrm{d}${3:x} $4"), options: "mA"},
         {trigger: "oint",  replacement: "\\oint", options: "mA"},
         {trigger: "iint",  replacement: "\\iint", options: "mA"},
         {trigger: "iiint", replacement: "\\iiint", options: "mA"},
-        {trigger: "oinf",  replacement: "\\int_{0}^{\\infty} $0 \\dd{${1:x}} $2", options: "mA"},
-        {trigger: "infi",  replacement: "\\int_{-\\infty}^{\\infty} $0 \\dd{${1:x}} $2", options: "mA"},
+        {trigger: "oinf", replacement: profileReplacement("\\int_{0}^{\\infty} $0 \\dd{${1:x}} $2", "\\int_{0}^{\\infty} $0 \\,\\mathrm{d}${1:x} $2"), options: "mA"},
+        {trigger: "infi", replacement: profileReplacement("\\int_{-\\infty}^{\\infty} $0 \\dd{${1:x}} $2", "\\int_{-\\infty}^{\\infty} $0 \\,\\mathrm{d}${1:x} $2"), options: "mA"},
     
         // Trig
         {trigger: /(^|$|[^\\a-zA-Z])(arcsin|sin|arccos|cos|arctan|tan|csc|sec|cot)/, replacement: "[[0]]\\[[1]]", options: "rmA"},
@@ -282,6 +303,7 @@ function createSnippets({ toggleInlineMath, toggleDisplayMath }) {
         {trigger: /(arccsc|arcsec|arccot)/, replacement: "\\operatorname{[[0]]}$0", options: "mA", priority: 1},
     
         {trigger: expandVars("\\\\(${GREEK}|${SYMBOL}|${MORE_SYMBOLS})([A-Za-z])"), replacement: "\\[[0]] [[1]]", options: "rmA"},
+        
         // physics
         {trigger: "kbt",   replacement: "k_{B}T", options: "mA"},
         {trigger: "hbar",   replacement: "\\hbar ", options: "mA", priority: 10},
@@ -301,32 +323,32 @@ function createSnippets({ toggleInlineMath, toggleDisplayMath }) {
         // {trigger: /([pbBvV]mat)/,         replacement: "\\begin{[[0]]rix}\n$0\n\\end{[[0]]rix}", options: "rMA"},
         {trigger: /(matrix|cases|align|array|gathered)/, replacement: "\\begin{[[0]]}\n$0\n\\end{[[0]]}", options: "rmA", environment: true},
         // {trigger: "avg",   replacement: "\\langle $0 \\rangle $1", options: "mA"},
-        {trigger: "abs",  replacement: "\\abs{ $0 }$1", options: "mA", priority: 1},
-        {trigger: "norm",  replacement: "\\norm{ $0 }$1", options: "mA", priority: 1},
+        {trigger: "abs", replacement: profileReplacement("\\abs{ $0 }$1", "\\left| $0 \\right|$1"), options: "mA", priority: 1},
+        {trigger: "norm", replacement: profileReplacement("\\norm{ $0 }$1", "\\left\\lVert $0 \\right\\rVert$1"), options: "mA", priority: 1},
         {trigger: "ceil",  replacement: "\\lceil $0 \\rceil $1", options: "mA"},
         {trigger: "floor", replacement: "\\lfloor $0 \\rfloor $1", options: "mA"},
-        {trigger: "evv", replacement: "\\ev{ $0 }$1", options: "mA"},
-        {trigger: "ipp", replacement: "\\ip{ $0 }{ $1 }$2", options: "mA"},
-        {trigger: "opp", replacement: "\\op{ $0 }{ $1 }$2", options: "mA"},
-        {trigger: "mel", replacement: "\\mel{ $0 }{ $1 }{ $2 }$3", options: "mA"},
-        {trigger: "comm", replacement: "\\comm{ $0 }{ $1 }$2", options: "mA"},
-        {trigger: "acomm", replacement: "\\acomm{ $0 }{ $1 }$2", options: "mA", priority: 1},
+        {trigger: "evv", replacement: profileReplacement("\\ev{ $0 }$1", "\\left\\langle $0 \\right\\rangle$1"), options: "mA"},
+        {trigger: "ipp", replacement: profileReplacement("\\ip{ $0 }{ $1 }$2", "\\left\\langle $0 \\middle| $1 \\right\\rangle$2"), options: "mA"},
+        {trigger: "opp", replacement: profileReplacement("\\op{ $0 }{ $1 }$2", "\\left| $0 \\right\\rangle\\!\\left\\langle $1 \\right|$2"), options: "mA"},
+        {trigger: "mel", replacement: profileReplacement("\\mel{ $0 }{ $1 }{ $2 }$3", "\\left\\langle $0 \\middle| $1 \\middle| $2 \\right\\rangle$3"), options: "mA"},
+        {trigger: "comm", replacement: profileReplacement("\\comm{ $0 }{ $1 }$2", "\\left[ $0, $1 \\right]$2"), options: "mA"},
+        {trigger: "acomm", replacement: profileReplacement("\\acomm{ $0 }{ $1 }$2", "\\left\\{ $0, $1 \\right\\}$2"), options: "mA", priority: 1},
         {trigger: "vert", replacement: "\\vert", options: "mA"},
-        {trigger: "lr(",   replacement: "\\qty( $0 )$1", options: "mA"},
-        {trigger: "lr[",   replacement: "\\qty[ $0 ]$1", options: "mA"},
-        {trigger: "lr{",   replacement: "\\qty{ $0 }$1", options: "mA"},
+        {trigger: "lr(", replacement: profileReplacement("\\qty( $0 )$1", "\\left( $0 \\right)$1"), options: "mA"},
+        {trigger: "lr[", replacement: profileReplacement("\\qty[ $0 ]$1", "\\left[ $0 \\right]$1"), options: "mA"},
+        {trigger: "lr{", replacement: profileReplacement("\\qty{ $0 }$1", "\\left\\{ $0 \\right\\}$1"), options: "mA"},
         {trigger: "(", replacement: "( $0 )$1", options: "mA"},
         {trigger: "[", replacement: "[ $0 ]$1", options: "mA"},
         {trigger: "\\{", replacement: "\\{ ${0} \\}$1", options: "mA"},
         {trigger: "{", replacement: "{ $0 }$1", options: "mA"},
         {trigger: "|", replacement: "| $0 |$1", options: "mA"},
-        {trigger: "mat(", replacement: "\\pmqty{\n$0\n}", options: "mA", priority: 1},
-        {trigger: "mat[", replacement: "\\bmqty{\n$0\n}", options: "mA", priority: 1},
-        {trigger: "mat|", replacement: "\\mdet{\n$0\n}", options: "mA", priority: 1},
+        {trigger: "mat(", replacement: profileReplacement("\\pmqty{\n$0\n}", "\\begin{pmatrix}\n$0\n\\end{pmatrix}"), options: "mA", priority: 1},
+        {trigger: "mat[", replacement: profileReplacement("\\bmqty{\n$0\n}", "\\begin{bmatrix}\n$0\n\\end{bmatrix}"), options: "mA", priority: 1},
+        {trigger: "mat|", replacement: profileReplacement("\\mdet{\n$0\n}", "\\begin{vmatrix}\n$0\n\\end{vmatrix}"), options: "mA", priority: 1},
         {trigger: "binom", replacement: "\\binom{ ${0:n} }{ ${1:k} }$2", options: "mA"},
-        {trigger: "imat", replacement: "\\imat{$0}$1", options: "mA", priority: 2},
-        {trigger: "dmat", replacement: "\\dmat{$0}$1", options: "mA", priority: 2},
-        {trigger: "xmat", replacement: "\\xmat{$0}$1", options: "mA", priority: 2},
+        {trigger: "imat", replacement: profileReplacement("\\imat{$0}$1", "\\begin{pmatrix}\n$0\n\\end{pmatrix}$1"), options: "mA", priority: 2},
+        {trigger: "dmat", replacement: profileReplacement("\\dmat{$0}$1", "\\begin{pmatrix}\n$0\n\\end{pmatrix}$1"), options: "mA", priority: 2},
+        {trigger: "xmat", replacement: profileReplacement("\\xmat{$0}$1", "\\begin{pmatrix}\n$0\n\\end{pmatrix}$1"), options: "mA", priority: 2},
         {trigger: "b\\otimes ed", replacement: "\\boxed{\n$0\n}", options: "mA", priority: 2},
     
         // {trigger: "mod",   replacement: "|${0}|$1", options: "mA"},
@@ -343,6 +365,14 @@ function createSnippets({ toggleInlineMath, toggleDisplayMath }) {
         // }, options: "mA"},
     
     ]
+
+    return addSnippetIds(snippets)
 }
 
-module.exports = { createSnippets }
+module.exports = {
+    addSnippetIds,
+    createSnippets,
+    PHYSICS_COMMAND_PATTERN,
+    resolveUsePhysicsPackage,
+    snippetId,
+}
