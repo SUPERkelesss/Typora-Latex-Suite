@@ -21,7 +21,7 @@
 
 ## 快速上手
 
-查看目录下 [cheatsheet](/cheatsheet.md) 文件获取插件支持的 snippets 列表。您也可以通过修改 `snippets.js` 文件添加自定义配置。
+查看目录下的 [cheatsheet](./cheatsheet.md) 获取插件支持的 snippets 列表。您也可以通过修改 `snippets.js` 文件添加自定义配置。
 
 ## 切换片段配置
 

@@ -23,7 +23,7 @@
 
 ## Fast Setup
 
-Read [cheatsheet](/cheatsheet.md) to obtain available snippets. You can also add custom snippets in `snippets.js`.
+Read the [cheatsheet](./cheatsheet.md) to obtain available snippets. You can also add custom snippets in `snippets.js`.
 
 ## Switching Snippet Profiles
 
