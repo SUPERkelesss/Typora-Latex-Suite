@@ -130,16 +130,15 @@
 | 简写 | 展开 | 公式效果 |
 | --- | --- | --- |
 | <code>ddx ddt</code> | physics：<code>\dd{x/t}</code><br>标准：<code>\,\mathrm d x/t</code> | $\mathrm dx,\mathrm dt$ |
-| <code>ddd dd1</code> | 一阶微分，占位符可编辑 | $\mathrm dx$ |
-| <code>dd2</code>…<code>dd9</code> | 指定阶数的微分 | $\mathrm d^nx$ |
-| <code>dv0 dv1</code> | 无分子/有分子的全导数 | $\frac{\mathrm d}{\mathrm dx},\frac{\mathrm dy}{\mathrm dx}$ |
-| <code>dv2</code>…<code>dv9</code> | n 阶全导数 | $\frac{\mathrm d^ny}{\mathrm dx^n}$ |
-| <code>pdv0 pdv1 pdvv</code> | 无分子/有分子的偏导 | $\frac{\partial}{\partial x},\frac{\partial y}{\partial x}$ |
-| <code>pdv2</code>…<code>pdv9</code> | n 阶偏导 | $\frac{\partial^ny}{\partial x^n}$ |
+| <code>ddd</code> | 一阶微分，占位符可编辑 | $\mathrm dx$ |
+| <code>ddn</code> | 输入阶数与变量，展开为可选阶微分 | $\mathrm d^nx$ |
+| <code>dvn</code> | 输入阶数、分子与变量，展开为 n 阶全导数 | $\frac{\mathrm d^ny}{\mathrm dx^n}$ |
+| <code>pdvn</code> | 输入阶数、分子与变量，展开为 n 阶偏导 | $\frac{\partial^ny}{\partial x^n}$ |
+| <code>dvv</code> | 带默认 $y,x$ 的一阶全导数 | $\frac{\mathrm dy}{\mathrm dx}$ |
+| <code>pdv0 pdvv</code> | 无分子/带默认 $y,x$ 的偏导 | $\frac{\partial}{\partial x},\frac{\partial y}{\partial x}$ |
 | <code>pdv:</code> | 混合二阶偏导 | $\frac{\partial^2z}{\partial x\,\partial y}$ |
 | <code>pdv_</code> | 带保持变量的偏导 | $\left(\frac{\partial y}{\partial x}\right)_t$ |
 | <code>paFx paFxy paFx_y</code> | 紧凑偏导写法 | $\frac{\partial F}{\partial x},\frac{\partial^2F}{\partial x\partial y},\left(\frac{\partial F}{\partial x}\right)_y$ |
-| <code>pa2Fx</code>…<code>pa9Fx</code> | 指定阶数偏导 | $\frac{\partial^nF}{\partial x^n}$ |
 | <code>int oint iint iiint</code> | 对应积分符号 | $\int,\oint,\iint,\iiint$ |
 | <code>dint</code> | 有限区间积分模板 | $\int_0^1f(x)\,\mathrm dx$ |
 | <code>oinf infi</code> | 半无限/全实轴积分模板 | $\int_0^\infty f\,\mathrm dx,\int_{-\infty}^{\infty}f\,\mathrm dx$ |

@@ -62,6 +62,17 @@ function testMatcher() {
     assert.equal(parseReplacement(renderSnippetReplacement(vector.snippet, vector.match)).finalText, "\\vb{}")
     assert.notEqual(vector.snippet.replacement, "\\mathbb{[[0]]}", "vbb must remain the vector shorthand")
 
+    const prefixedVectors = new Map([
+        ["xvaa", "\\va{x}"],
+        ["xvbb", "\\vb{x}"],
+        ["xvuu", "\\vu{x}"],
+    ])
+    for (const [input, expected] of prefixedVectors) {
+        const result = matchSnippet(snippets, input, mathAuto)
+        assert.ok(result, `${input} must match the prefixed vector rule`)
+        assert.equal(parseReplacement(renderSnippetReplacement(result.snippet, result.match)).finalText, expected)
+    }
+
     const autoSubscriptCases = new Map([
         ["\\alpha2", "\\alpha_{2}"],
         ["\\beta2", "\\beta_{2}"],
@@ -100,6 +111,13 @@ function testMatcher() {
     )
 
     const conflictCases = new Map([
+        ["ddn", "\\dd[]{}"],
+        ["dvn", "\\dv[]{  }{  }"],
+        ["pdvn", "\\pdv[]{  }{  }"],
+        ["dvv", "\\dv{ y }{ x } "],
+        ["pdvv", "\\pdv{ y }{ x } "],
+        ["\\xii", "x_{i}"],
+        ["\\xi i", "x_{i}"],
         ["iiint", "\\iiint"],
         ["<->", "\\leftrightarrow "],
         ["eset", "\\emptyset "],
@@ -159,7 +177,7 @@ function testSnippetProfiles() {
             snippet.replacement !== noPhysics[index].replacement
         )
         .map(snippet => snippet.id)
-    assert.equal(changedIds.length, 60, "all profile-specific replacements must remain selectable")
+    assert.equal(changedIds.length, 56, "all profile-specific replacements must remain selectable")
 
     for (const snippet of noPhysics) {
         if (typeof snippet.replacement === "string") {
@@ -171,6 +189,9 @@ function testSnippetProfiles() {
     const mathAuto = { inMath: true, inNewLine: false, inInlineMath: false, isAutoKey: true }
     const cases = new Map([
         ["vbb", "\\mathbf{}"],
+        ["ddn", "\\,\\mathrm{d}^{}"],
+        ["dvn", "\\frac{\\mathrm{d}^{} }{\\mathrm{d} ^{}}"],
+        ["pdvn", "\\frac{\\partial^{} }{\\partial ^{}}"],
         ["ddx", "\\,\\mathrm{d}x"],
         ["abs", "\\left|  \\right|"],
         ["lr(", "\\left(  \\right)"],
