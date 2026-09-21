@@ -116,6 +116,7 @@ function testMatcher() {
         ["pdvn", "\\pdv[]{  }{  }"],
         ["dvv", "\\dv{ y }{ x } "],
         ["pdvv", "\\pdv{ y }{ x } "],
+        ["int", "\\int"],
         ["\\xii", "x_{i}"],
         ["\\xi i", "x_{i}"],
         ["iiint", "\\iiint"],

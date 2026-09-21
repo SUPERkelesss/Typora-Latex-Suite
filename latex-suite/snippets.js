@@ -284,7 +284,7 @@ function createSnippets({ toggleInlineMath, toggleDisplayMath, usePhysicsPackage
         {trigger: /pa([A-Za-z])([A-Za-z])/, replacement: profileReplacement("\\pdv{ [[0]] }{ [[1]] } ", "\\frac{\\partial [[0]]}{\\partial [[1]]} "), options: "rm"},
         {trigger: /pa([A-Za-z])([A-Za-z])([A-Za-z])/, replacement: profileReplacement("\\pdv{ [[0]] }{ [[1]] }{ [[2]] } ", "\\frac{\\partial^{2} [[0]]}{\\partial [[1]]\\,\\partial [[2]]} "), options: "rm"},
         {trigger: /pa([A-Za-z])([A-Za-z])_([A-Za-z])/, replacement: profileReplacement("\\qty(\\pdv{ [[0]] }{ [[1]] })_{ [[2]] } ", "\\left(\\frac{\\partial [[0]]}{\\partial [[1]]}\\right)_{[[2]]} "), options: "rm"},
-        {trigger: /([^\\])int/, replacement: "[[0]]\\int", options: "mA", priority: -1},
+        {trigger: /(^|[^\\])int/, replacement: "[[0]]\\int", options: "mA", priority: -1},
         {trigger: "dint", replacement: profileReplacement("\\int_{${0:0}}^{${1:1}} $2 \\dd{${3:x}} $4", "\\int_{${0:0}}^{${1:1}} $2 \\,\\mathrm{d}${3:x} $4"), options: "mA"},
         {trigger: "oint",  replacement: "\\oint", options: "mA"},
         {trigger: "iint",  replacement: "\\iint", options: "mA"},
